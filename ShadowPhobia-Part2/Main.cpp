@@ -1,105 +1,110 @@
-﻿# include <Siv3D.hpp> // Siv3D v0.6.16
+﻿#include <Siv3D.hpp>
 
 void Main()
 {
-	// 背景の色を設定する | Set the background color
-	Scene::SetBackground(ColorF{ 0.6, 0.8, 0.7 });
+	Window::Resize(800, 600);
 
-	// 画像ファイルからテクスチャを作成する | Create a texture from an image file
-	const Texture texture{ U"example/windmill.png" };
+	// --- 画像の読み込み ---
+	const Texture playerTexture{ U"player.png" };
 
-	// 絵文字からテクスチャを作成する | Create a texture from an emoji
-	const Texture emoji{ U"🦖"_emoji };
+	if (not playerTexture)
+	{
+		throw Error{ U"画像ファイルの読み込みに失敗しました。Appフォルダに画像があるか確認してください。" };
+	}
 
-	// 太文字のフォントを作成する | Create a bold font with MSDF method
-	const Font font{ FontMethod::MSDF, 48, Typeface::Bold };
+	// ★★★ プレイヤーの描画サイズを大きく変更（60.0 -> 120.0） ★★★
+	// ここを 150.0 や 200.0 にするとさらに大きくなります
+	const double playerSize = 120.0;
 
-	// テキストに含まれる絵文字のためのフォントを作成し、font に追加する | Create a font for emojis in text and add it to font as a fallback
-	const Font emojiFont{ 48, Typeface::ColorEmoji };
-	font.addFallback(emojiFont);
+	// 地面のベースとなるY座標
+	const double groundBaseY = 540.0;
+	// プレイヤーの中心が位置すべき地面のY座標（サイズに合わせて自動計算）
+	const double groundY = groundBaseY - (playerSize / 2.0);
 
-	// ボタンを押した回数 | Number of button presses
-	int32 count = 0;
+	// プレイヤーの初期位置（画面中央、地面の上）
+	Vec2 playerPos{ 400, groundY };
 
-	// チェックボックスの状態 | Checkbox state
-	bool checked = false;
+	// 移動・慣性関連のパラメータ
+	double velocityX = 0.0;
+	const double moveAccel = 1500.0;
+	const double airAccel = 800.0;
+	const double maxSpeed = 300.0;
+	const double friction = 8.0;
 
-	// プレイヤーの移動スピード | Player's movement speed
-	double speed = 200.0;
-
-	// プレイヤーの X 座標 | Player's X position
-	double playerPosX = 400;
-
-	// プレイヤーが右を向いているか | Whether player is facing right
-	bool isPlayerFacingRight = true;
+	// ジャンプ・物理関連のパラメータ
+	double velocityY = 0.0;
+	const double gravity = 980.0;
+	const double jumpForce = -500.0;  // ※画像が重そうに感じたら -600.0 などにすると高く飛びます
+	bool isGrounded = true;
 
 	while (System::Update())
 	{
-		// テクスチャを描く | Draw the texture
-		texture.draw(20, 20);
+		const double dt = Scene::DeltaTime();
 
-		// テキストを描く | Draw text
-		font(U"Hello, Siv3D!🎮").draw(64, Vec2{ 20, 340 }, ColorF{ 0.2, 0.4, 0.8 });
+		// 1. 左右の入力方向を判定
+		double inputX = 0.0;
+		if (KeyLeft.pressed() || KeyA.pressed())  inputX -= 1.0;
+		if (KeyRight.pressed() || KeyD.pressed()) inputX += 1.0;
 
-		// 指定した範囲内にテキストを描く | Draw text within a specified area
-		font(U"Siv3D (シブスリーディー) は、ゲームやアプリを楽しく簡単な C++ コードで開発できるフレームワークです。")
-			.draw(18, Rect{ 20, 430, 480, 200 }, Palette::Black);
-
-		// 長方形を描く | Draw a rectangle
-		Rect{ 540, 20, 80, 80 }.draw();
-
-		// 角丸長方形を描く | Draw a rounded rectangle
-		RoundRect{ 680, 20, 80, 200, 20 }.draw(ColorF{ 0.0, 0.4, 0.6 });
-
-		// 円を描く | Draw a circle
-		Circle{ 580, 180, 40 }.draw(Palette::Seagreen);
-
-		// 矢印を描く | Draw an arrow
-		Line{ 540, 330, 760, 260 }.drawArrow(8, SizeF{ 20, 20 }, ColorF{ 0.4 });
-
-		// 半透明の円を描く | Draw a semi-transparent circle
-		Circle{ Cursor::Pos(), 40 }.draw(ColorF{ 1.0, 0.0, 0.0, 0.5 });
-
-		// ボタン | Button
-		if (SimpleGUI::Button(U"count: {}"_fmt(count), Vec2{ 520, 370 }, 120, (checked == false)))
+		// 2. 慣性処理
+		if (inputX != 0.0)
 		{
-			// カウントを増やす | Increase the count
-			++count;
+			const double accel = isGrounded ? moveAccel : airAccel;
+			velocityX += inputX * accel * dt;
+			velocityX = Math::Clamp(velocityX, -maxSpeed, maxSpeed);
+		}
+		else
+		{
+			velocityX -= velocityX * friction * dt;
+			if (Abs(velocityX) < 1.0) velocityX = 0.0;
 		}
 
-		// チェックボックス | Checkbox
-		SimpleGUI::CheckBox(checked, U"Lock \U000F033E", Vec2{ 660, 370 }, 120);
+		playerPos.x += velocityX * dt;
 
-		// スライダー | Slider
-		SimpleGUI::Slider(U"speed: {:.1f}"_fmt(speed), speed, 100, 400, Vec2{ 520, 420 }, 140, 120);
-
-		// 左キーが押されていたら | If left key is pressed
-		if (KeyLeft.pressed())
+		// 3. ジャンプ
+		if (KeySpace.down() && isGrounded)
 		{
-			// プレイヤーが左に移動する | Player moves left
-			playerPosX = Max((playerPosX - speed * Scene::DeltaTime()), 60.0);
-			isPlayerFacingRight = false;
+			velocityY = jumpForce;
+			isGrounded = false;
 		}
 
-		// 右キーが押されていたら | If right key is pressed
-		if (KeyRight.pressed())
+		// 4. 縦方向の物理演算
+		if (!isGrounded)
 		{
-			// プレイヤーが右に移動する | Player moves right
-			playerPosX = Min((playerPosX + speed * Scene::DeltaTime()), 740.0);
-			isPlayerFacingRight = true;
+			velocityY += gravity * dt;
+		}
+		playerPos.y += velocityY * dt;
+
+		// 5. 着地判定
+		if (playerPos.y >= groundY)
+		{
+			playerPos.y = groundY;
+			velocityY = 0.0;
+			isGrounded = true;
 		}
 
-		// プレイヤーを描く | Draw the player
-		emoji.scaled(0.75).mirrored(isPlayerFacingRight).drawAt(playerPosX, 540);
+		// 画面外への飛び出し制限（サイズに合わせて壁の衝突位置も自動調整）
+		playerPos.x = Math::Clamp(playerPos.x, playerSize / 2.0, 800.0 - playerSize / 2.0);
+
+		// --- 描画処理 ---
+		// 地面の描画
+		Line{ 0, groundBaseY, 800, groundBaseY }.draw(4, Palette::White);
+
+		// 6. 画像の向き（反転）処理と描画
+		if (velocityX < 0)
+		{
+			// 左に動いているときは画像を左右反転
+			playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
+		}
+		else if (velocityX > 0)
+		{
+			// 右に動いているときはそのまま
+			playerTexture.resized(playerSize).drawAt(playerPos);
+		}
+		else
+		{
+			// 止まっているときは最後に動いていた向き（今回はデフォルト）で描画
+			playerTexture.resized(playerSize).drawAt(playerPos);
+		}
 	}
 }
-
-//
-// - Debug ビルド: プログラムの最適化を減らす代わりに、エラーやクラッシュ時に詳細な情報を得られます。
-//
-// - Release ビルド: 最大限の最適化でビルドします。
-//
-// - [デバッグ] メニュー → [デバッグの開始] でプログラムを実行すると、[出力] ウィンドウに詳細なログが表示され、エラーの原因を探せます。
-//
-// - Visual Studio を更新した直後は、プログラムのリビルド（[ビルド]メニュー → [ソリューションのリビルド]）が必要な場合があります。
-//
