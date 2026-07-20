@@ -1,55 +1,146 @@
 ﻿#include <Siv3D.hpp>
+#include "GameTimer.h"
+#include "Enemy.h"
+#include "GameStage.h"
 
 void Main()
 {
 	Window::Resize(800, 600);
+	Scene::SetBackground(ColorF{ 0.4, 0.7, 1.0 });
 
-	// --- 画像の読み込み ---
+	const Font font{ 30, Typeface::Bold };
+	const Font largeFont{ 60, Typeface::Bold };
 	const Texture playerTexture{ U"player.png" };
 
 	if (not playerTexture)
 	{
-		throw Error{ U"画像ファイルの読み込みに失敗しました。Appフォルダに画像があるか確認してください。" };
+		throw Error{ U"画像ファイルの読み込みに失敗しました。" };
 	}
 
-	// ★★★ プレイヤーの描画サイズを大きく変更（60.0 -> 120.0） ★★★
-	// ここを 150.0 や 200.0 にするとさらに大きくなります
+	GameStage stage;
+	EnemyManager enemyManager;
+	GameTimer gameTimer;
+	Camera2D camera{ Vec2{ 400, 300 }, 1.0 };
+
 	const double playerSize = 120.0;
+	const double groundY = GameStage::GroundBaseY - (playerSize / 2.0);
 
-	// 地面のベースとなるY座標
-	const double groundBaseY = 540.0;
-	// プレイヤーの中心が位置すべき地面のY座標（サイズに合わせて自動計算）
-	const double groundY = groundBaseY - (playerSize / 2.0);
+	const double moveAccel = 1800.0;
+	const double airAccel = 1200.0;
+	const double maxSpeed = 320.0;
+	const double friction = 9.0;
 
-	// プレイヤーの初期位置（画面中央、地面の上）
-	Vec2 playerPos{ 400, groundY };
+	const double gravity = 1100.0;
+	const double jumpForce = -620.0;
+	const double stompJumpForce = -400.0;
+	const double gameTimeLimit = 300.0;
 
-	// 移動・慣性関連のパラメータ
+	Vec2 playerPos;
 	double velocityX = 0.0;
-	const double moveAccel = 1500.0;
-	const double airAccel = 800.0;
-	const double maxSpeed = 300.0;
-	const double friction = 8.0;
-
-	// ジャンプ・物理関連のパラメータ
 	double velocityY = 0.0;
-	const double gravity = 980.0;
-	const double jumpForce = -500.0;  // ※画像が重そうに感じたら -600.0 などにすると高く飛びます
 	bool isGrounded = true;
+	bool isFacingLeft = false;
+	bool isGameOver = false;
+	bool isGameClear = false;
+
+	double coyoteTimer = 0.0;
+	double jumpBufferTimer = 0.0;
+
+	auto getPlayerRect = [&](const Vec2& pos) {
+		return RectF{ Arg::center = pos, playerSize * 0.6, playerSize * 0.8 };
+		};
+
+	auto resetGame = [&]()
+		{
+			playerPos = Vec2{ 200, groundY };
+			velocityX = 0.0;
+			velocityY = 0.0;
+			isGrounded = true;
+			isFacingLeft = false;
+			isGameOver = false;
+			isGameClear = false;
+
+			coyoteTimer = 0.0;
+			jumpBufferTimer = 0.0;
+
+			stage.reset();
+			enemyManager.reset();
+
+			const double cameraX = Math::Clamp(playerPos.x, 400.0, GameStage::MapWidth - 400.0);
+			camera.setTargetCenter(Vec2{ cameraX, 300.0 });
+			camera.update();
+
+			gameTimer.start(gameTimeLimit);
+		};
+
+	resetGame();
 
 	while (System::Update())
 	{
 		const double dt = Scene::DeltaTime();
 
-		// 1. 左右の入力方向を判定
+		// 1. カメラ更新
+		const double cameraX = Math::Clamp(playerPos.x, 400.0, GameStage::MapWidth - 400.0);
+		camera.setTargetCenter(Vec2{ cameraX, 300.0 });
+		camera.update();
+
+		// 2. リトライ/リザルト画面
+		if (isGameOver || isGameClear)
+		{
+			{
+				const auto transformer = camera.createTransformer();
+				stage.drawWorld();
+				enemyManager.draw(playerTexture);
+
+				if (isFacingLeft) playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
+				else playerTexture.resized(playerSize).drawAt(playerPos);
+			}
+
+			Scene::Rect().draw(ColorF{ 0.0, 0.0, 0.0, 0.5 });
+
+			if (isGameClear)
+			{
+				largeFont(U"STAGE CLEAR!").drawAt(Vec2{ 400, 230 }, Palette::Yellow);
+			}
+			else
+			{
+				largeFont(U"GameOver!").drawAt(Vec2{ 400, 230 }, Palette::Red);
+			}
+
+			font(U"Rボタンでリトライ").drawAt(Vec2{ 400, 330 }, Palette::White);
+
+			const int32 remainingTime = gameTimer.getRemainingSeconds();
+			font(U"TIME: {:03d}"_fmt(remainingTime)).draw(Arg::topRight = Vec2{ 770, 20 }, Palette::Yellow);
+
+			if (KeyR.down()) resetGame();
+			continue;
+		}
+
+		// 3. タイムアップ ＆ 画面外落下（落とし穴）判定
+		if (gameTimer.isTimeUp() || playerPos.y > 750.0)
+		{
+			isGameOver = true;
+			gameTimer.pause();
+		}
+
+		// 4. 敵の更新
+		enemyManager.update(dt);
+
+		// 5. タイマーの更新
+		if (isGrounded) coyoteTimer = 0.12;
+		else coyoteTimer -= dt;
+
+		if (KeySpace.down()) jumpBufferTimer = 0.15;
+		else jumpBufferTimer -= dt;
+
+		// 6. 移動 ＆ 物理演算
 		double inputX = 0.0;
 		if (KeyLeft.pressed() || KeyA.pressed())  inputX -= 1.0;
 		if (KeyRight.pressed() || KeyD.pressed()) inputX += 1.0;
 
-		// 2. 慣性処理
 		if (inputX != 0.0)
 		{
-			const double accel = isGrounded ? moveAccel : airAccel;
+			const double accel = (coyoteTimer > 0) ? moveAccel : airAccel;
 			velocityX += inputX * accel * dt;
 			velocityX = Math::Clamp(velocityX, -maxSpeed, maxSpeed);
 		}
@@ -59,52 +150,168 @@ void Main()
 			if (Abs(velocityX) < 1.0) velocityX = 0.0;
 		}
 
+		// --- X軸移動 ---
 		playerPos.x += velocityX * dt;
 
-		// 3. ジャンプ
-		if (KeySpace.down() && isGrounded)
+		// ブロック横押し出し（通常の空中・地面ブロックのみ）
+		auto checkHorizontalBlock = [&](const RectF& block) {
+			const RectF pRect = getPlayerRect(playerPos);
+			if (pRect.intersects(block))
+			{
+				if (pRect.y + pRect.h > block.y + 10.0 && pRect.y < block.y + block.h - 10.0)
+				{
+					if (velocityX > 0)
+					{
+						playerPos.x = block.x - pRect.w / 2.0;
+						velocityX = 0.0;
+					}
+					else if (velocityX < 0)
+					{
+						playerPos.x = block.x + block.w + pRect.w / 2.0;
+						velocityX = 0.0;
+					}
+				}
+			}
+			};
+
+		for (const auto& block : stage.blocks) checkHorizontalBlock(block);
+		for (const auto& hBlock : stage.hiddenBlocks)
+		{
+			if (hBlock.isRevealed) checkHorizontalBlock(hBlock.rect);
+		}
+
+		// --- ジャンプ判定 ---
+		if (jumpBufferTimer > 0.0 && coyoteTimer > 0.0)
 		{
 			velocityY = jumpForce;
+			coyoteTimer = 0.0;
+			jumpBufferTimer = 0.0;
 			isGrounded = false;
 		}
 
-		// 4. 縦方向の物理演算
 		if (!isGrounded)
 		{
 			velocityY += gravity * dt;
 		}
 		playerPos.y += velocityY * dt;
 
-		// 5. 着地判定
-		if (playerPos.y >= groundY)
+		bool landedThisFrame = false;
+
+		// ★ 落とし穴の範囲判定
+		// プレイヤーの判定サイズ(playerSize * 0.6)の半分を考慮して、体の一部が穴にかかっているか確認
+		const double playerHalfWidth = (playerSize * 0.6) / 2.0;
+		const bool isInPit = stage.isOverPit(playerPos.x);
+		const bool isNearPitEdge = stage.isOverPit(playerPos.x - playerHalfWidth) || stage.isOverPit(playerPos.x + playerHalfWidth);
+
+		// 穴の上、または穴のフチに引っかかっている間は「地面への着地」を完全に禁止する
+		if (!isInPit && !isNearPitEdge)
 		{
-			playerPos.y = groundY;
-			velocityY = 0.0;
-			isGrounded = true;
+			if (playerPos.y >= groundY)
+			{
+				playerPos.y = groundY;
+				velocityY = 0.0;
+				landedThisFrame = true;
+			}
 		}
 
-		// 画面外への飛び出し制限（サイズに合わせて壁の衝突位置も自動調整）
-		playerPos.x = Math::Clamp(playerPos.x, playerSize / 2.0, 800.0 - playerSize / 2.0);
+		// ブロック縦判定処理（通常ブロック ＆ 実体化した透明ブロック）
+		auto checkVerticalBlock = [&](const RectF& block) {
+			const RectF pRect = getPlayerRect(playerPos);
+			if (pRect.intersects(block))
+			{
+				if (velocityY >= 0.0 && (pRect.y + pRect.h - velocityY * dt) <= block.y + 18.0)
+				{
+					playerPos.y = block.y - pRect.h / 2.0;
+					velocityY = 0.0;
+					landedThisFrame = true;
+				}
+				else if (velocityY < 0.0 && (pRect.y - velocityY * dt) >= block.y + block.h - 18.0)
+				{
+					playerPos.y = block.y + block.h + pRect.h / 2.0;
+					velocityY = 0.0;
+				}
+			}
+			};
 
-		// --- 描画処理 ---
-		// 地面の描画
-		Line{ 0, groundBaseY, 800, groundBaseY }.draw(4, Palette::White);
+		for (const auto& block : stage.blocks) checkVerticalBlock(block);
 
-		// 6. 画像の向き（反転）処理と描画
-		if (velocityX < 0)
+		// ★ 透明（隠し）ブロックの判定・出現（叩き）処理
+		for (auto& hBlock : stage.hiddenBlocks)
 		{
-			// 左に動いているときは画像を左右反転
-			playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
+			const RectF pRect = getPlayerRect(playerPos);
+
+			if (hBlock.isRevealed)
+			{
+				checkVerticalBlock(hBlock.rect);
+			}
+			else
+			{
+				if (pRect.intersects(hBlock.rect) && velocityY < 0.0 && (pRect.y - velocityY * dt) >= hBlock.rect.y + hBlock.rect.h - 18.0)
+				{
+					hBlock.isRevealed = true;
+					playerPos.y = hBlock.rect.y + hBlock.rect.h + pRect.h / 2.0;
+					velocityY = 0.0;
+				}
+			}
 		}
-		else if (velocityX > 0)
+
+		// 落とし穴エリアに入っている場合は強制的に接地判定をOFF（空中扱い）
+		if (isInPit)
 		{
-			// 右に動いているときはそのまま
-			playerTexture.resized(playerSize).drawAt(playerPos);
+			isGrounded = false;
 		}
 		else
 		{
-			// 止まっているときは最後に動いていた向き（今回はデフォルト）で描画
-			playerTexture.resized(playerSize).drawAt(playerPos);
+			isGrounded = landedThisFrame;
 		}
+
+		playerPos.x = Math::Clamp(playerPos.x, playerSize / 2.0, GameStage::MapWidth - playerSize / 2.0);
+
+		// 7. ゴール ＆ 敵判定
+		const RectF playerRect = getPlayerRect(playerPos);
+
+		if (playerRect.intersects(stage.getGoalRect()))
+		{
+			isGameClear = true;
+			gameTimer.pause();
+		}
+
+		for (auto& enemy : enemyManager.getEnemies())
+		{
+			if (!enemy.isAlive) continue;
+
+			if (playerRect.intersects(enemy.getCircle()))
+			{
+				const bool isStomping = (velocityY > 0.0) && (playerPos.y < enemy.pos.y - 10.0);
+
+				if (isStomping)
+				{
+					enemy.isAlive = false;
+					velocityY = stompJumpForce;
+				}
+				else
+				{
+					isGameOver = true;
+					gameTimer.pause();
+				}
+			}
+		}
+
+		// 8. 描画
+		{
+			const auto transformer = camera.createTransformer();
+
+			stage.drawWorld();
+			enemyManager.draw(playerTexture);
+
+			if (velocityX < 0)      isFacingLeft = true;
+			else if (velocityX > 0) isFacingLeft = false;
+
+			if (isFacingLeft) playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
+			else playerTexture.resized(playerSize).drawAt(playerPos);
+		}
+
+		const int32 remainingTime = gameTimer.getRemainingSeconds();
+		font(U"TIME: {:03d}"_fmt(remainingTime)).draw(Arg::topRight = Vec2{ 770, 20 }, Palette::Yellow);
 	}
 }
