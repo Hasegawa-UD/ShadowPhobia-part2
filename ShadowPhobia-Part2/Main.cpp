@@ -69,7 +69,6 @@ void Main()
 			const double cameraX = Math::Clamp(playerPos.x, 400.0, GameStage::MapWidth - 400.0);
 			camera.setTargetCenter(Vec2{ cameraX, 300.0 });
 			camera.update();
-
 			gameTimer.start(gameTimeLimit);
 		};
 
@@ -307,8 +306,8 @@ void Main()
 			if (velocityX < 0)      isFacingLeft = true;
 			else if (velocityX > 0) isFacingLeft = false;
 
-			if (isFacingLeft) playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
-			else playerTexture.resized(playerSize).drawAt(playerPos);
+			if (isFacingLeft) playerTexture.resized(playerSize).drawAt(playerPos);
+			else  playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
 		}
 
 		const int32 remainingTime = gameTimer.getRemainingSeconds();
