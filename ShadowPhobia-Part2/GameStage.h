@@ -47,12 +47,12 @@ public:
 		// 隠しブロック
 		hiddenBlocks.push_back(HiddenBlock{ RectF{ 1450, 360, 50, 40 }, false });
 
-		//  コイン配置（好きな場所に置ける）
+		//  コイン配置（好きな場所に置けるyo）
 		coins << Vec2{ 520, 320 };
 		coins << Vec2{ 780, 240 };
 		coins << Vec2{ 1060, 160 };
 
-		//  ブロックの上に自動でコインを置く例
+		//  ブロックの上に自動でコインを置いてくれるyo
 		for (const auto& block : blocks)
 		{
 			coins << Vec2{ block.x + block.w / 2, block.y - 40 };
