@@ -46,9 +46,12 @@ void Main()
 	double coyoteTimer = 0.0;
 	double jumpBufferTimer = 0.0;
 
-	// ★ 壁判定フラグ
+	// 壁判定フラグ
 	bool isTouchingWallLeft = false;
 	bool isTouchingWallRight = false;
+
+	// スコア（コイン数）
+	int32 score = 0;
 
 	auto getPlayerRect = [&](const Vec2& pos) {
 		return RectF{ Arg::center = pos, playerSize * 0.6, playerSize * 0.8 };
@@ -67,6 +70,8 @@ void Main()
 			coyoteTimer = 0.0;
 			jumpBufferTimer = 0.0;
 
+			score = 0;
+
 			stage.reset();
 			enemyManager.reset();
 
@@ -83,7 +88,7 @@ void Main()
 	{
 		const double dt = Scene::DeltaTime();
 
-		// ★ 毎フレーム壁判定リセット
+		// 毎フレーム壁判定リセット
 		isTouchingWallLeft = false;
 		isTouchingWallRight = false;
 
@@ -99,6 +104,12 @@ void Main()
 				const auto transformer = camera.createTransformer();
 				stage.drawWorld();
 				enemyManager.draw(playerTexture);
+
+				// コイン描画
+				for (const auto& coinPos : stage.coins)
+				{
+					Circle{ coinPos, 20 }.draw(Palette::Yellow);
+				}
 
 				if (isFacingLeft) playerTexture.resized(playerSize).mirrored().drawAt(playerPos);
 				else playerTexture.resized(playerSize).drawAt(playerPos);
@@ -119,6 +130,7 @@ void Main()
 
 			const int32 remainingTime = gameTimer.getRemainingSeconds();
 			font(U"TIME: {:03d}"_fmt(remainingTime)).draw(Arg::topRight = Vec2{ 770, 20 }, Palette::Yellow);
+			font(U"SCORE: {}"_fmt(score)).draw(20, 20, Palette::White);
 
 			if (KeyR.down()) resetGame();
 			continue;
@@ -166,7 +178,7 @@ void Main()
 			const RectF pRect = getPlayerRect(playerPos);
 			if (pRect.intersects(block))
 			{
-				// ★ 壁判定を少し厳しくする（上下方向の余白を増やす）
+				// 壁判定を少し厳しくする
 				if (pRect.y + pRect.h > block.y + 20.0 && pRect.y < block.y + block.h - 20.0)
 				{
 					if (velocityX > 0)
@@ -191,7 +203,7 @@ void Main()
 			if (hBlock.isRevealed) checkHorizontalBlock(hBlock.rect);
 		}
 
-		// --- ジャンプ判定（元の地面ジャンプ） ---
+		// --- ジャンプ判定（地面ジャンプ） ---
 		if (jumpBufferTimer > 0.0 && coyoteTimer > 0.0)
 		{
 			velocityY = jumpForce;
@@ -200,7 +212,7 @@ void Main()
 			isGrounded = false;
 		}
 
-		//  壁ジャンプ（ウォールジャンプ）
+		// 壁ジャンプ
 		if (jumpBufferTimer > 0.0 && !isGrounded)
 		{
 			if (isTouchingWallLeft)
@@ -217,6 +229,16 @@ void Main()
 			}
 		}
 
+		// 壁スライド（壁に触れている間は落下速度を弱める）
+		if (!isGrounded && velocityY > 0.0)
+		{
+			if (isTouchingWallLeft || isTouchingWallRight)
+			{
+				velocityY = Min(velocityY, 120.0);
+				velocityX *= 0.8;
+			}
+		}
+
 		if (!isGrounded)
 		{
 			velocityY += gravity * dt;
@@ -225,26 +247,12 @@ void Main()
 
 		bool landedThisFrame = false;
 
-		//  壁スライド（壁に触れている間は落下速度を弱める）
-		if (!isGrounded && velocityY > 0.0)
-		{
-			if (isTouchingWallLeft || isTouchingWallRight)
-			{
-				// 落下速度を制限（ゆっくり落ちる）
-				velocityY = Min(velocityY, 120.0);
-
-				// 壁に張り付いている感を出すために横速度を少し抑える
-				velocityX *= 0.8;
-			}
-		}
-
-
-		// ★ 落とし穴の範囲判定
+		// 落とし穴の範囲判定
 		const double playerHalfWidth = (playerSize * 0.6) / 2.0;
 		const bool isInPit = stage.isOverPit(playerPos.x);
 		const bool isNearPitEdge = stage.isOverPit(playerPos.x - playerHalfWidth) || stage.isOverPit(playerPos.x + playerHalfWidth);
 
-		// 穴の上、または穴のフチに引っかかっている間は「地面への着地」を完全に禁止する
+		// 穴の上、または穴のフチに引っかかっている間は「地面への着地」を禁止
 		if (!isInPit && !isNearPitEdge)
 		{
 			if (playerPos.y >= groundY)
@@ -255,7 +263,7 @@ void Main()
 			}
 		}
 
-		// ブロック縦判定処理（通常ブロック ＆ 実体化した透明ブロック）
+		// ブロック縦判定処理
 		auto checkVerticalBlock = [&](const RectF& block) {
 			const RectF pRect = getPlayerRect(playerPos);
 			if (pRect.intersects(block))
@@ -276,7 +284,7 @@ void Main()
 
 		for (const auto& block : stage.blocks) checkVerticalBlock(block);
 
-		// ★ 透明（隠し）ブロックの判定・出現（叩き）処理
+		// 透明（隠し）ブロックの判定・出現（叩き）処理
 		for (auto& hBlock : stage.hiddenBlocks)
 		{
 			const RectF pRect = getPlayerRect(playerPos);
@@ -296,7 +304,7 @@ void Main()
 			}
 		}
 
-		// 落とし穴エリアに入っている場合は強制的に接地判定をOFF（空中扱い）
+		// 落とし穴エリアに入っている場合は強制的に接地判定をOFF
 		if (isInPit)
 		{
 			isGrounded = false;
@@ -311,12 +319,30 @@ void Main()
 		// 7. ゴール ＆ 敵判定
 		const RectF playerRect = getPlayerRect(playerPos);
 
+		// コイン取得判定
+		for (auto it = stage.coins.begin(); it != stage.coins.end();)
+		{
+			Circle coinCircle{ *it, 20 };
+
+			if (playerRect.intersects(coinCircle))
+			{
+				it = stage.coins.erase(it);
+				score += 10;
+			}
+			else
+			{
+				++it;
+			}
+		}
+
+		// ゴール判定
 		if (playerRect.intersects(stage.getGoalRect()))
 		{
 			isGameClear = true;
 			gameTimer.pause();
 		}
 
+		// 敵判定
 		for (auto& enemy : enemyManager.getEnemies())
 		{
 			if (!enemy.isAlive) continue;
@@ -329,6 +355,8 @@ void Main()
 				{
 					enemy.isAlive = false;
 					velocityY = stompJumpForce;
+
+					score += 100;
 				}
 				else
 				{
@@ -345,6 +373,12 @@ void Main()
 			stage.drawWorld();
 			enemyManager.draw(playerTexture);
 
+			// コイン描画
+			for (const auto& coinPos : stage.coins)
+			{
+				Circle{ coinPos, 20 }.draw(Palette::Yellow);
+			}
+
 			if (velocityX < 0)      isFacingLeft = true;
 			else if (velocityX > 0) isFacingLeft = false;
 
@@ -354,5 +388,6 @@ void Main()
 
 		const int32 remainingTime = gameTimer.getRemainingSeconds();
 		font(U"TIME: {:03d}"_fmt(remainingTime)).draw(Arg::topRight = Vec2{ 770, 20 }, Palette::Yellow);
+		font(U"SCORE: {}"_fmt(score)).draw(20, 20, Palette::White);
 	}
 }

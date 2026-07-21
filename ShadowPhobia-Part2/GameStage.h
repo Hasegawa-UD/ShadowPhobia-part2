@@ -5,7 +5,7 @@
 struct HiddenBlock
 {
 	RectF rect;
-	bool isRevealed = false; // たたかれて実体化したか
+	bool isRevealed = false;
 };
 
 class GameStage
@@ -17,45 +17,52 @@ public:
 	static constexpr double GoalX = 3000.0;
 	static constexpr double GoalPoleHeight = 300.0;
 
-	// 地面の穴（落とし穴）の範囲 X座標: [始点, 終点]
+	// 落とし穴の範囲
 	const Array<std::pair<double, double>> pits = {
-		{ 1500.0, 1680.0 } // 意地悪トラップ配置エリアの落とし穴
+		{ 1500.0, 1680.0 }
 	};
 
-	// 通常の障害物
+	// 通常ブロック
 	const Array<RectF> blocks = {
-		// --- エリア1: 登り階段 ＆ 高所足場 ---
 		RectF{ 500, 360, 120, 40 },
 		RectF{ 770, 280, 120, 40 },
 		RectF{ 1040, 200, 160, 40 },
-
-		// --- エリア2: 中空の島 ＆ トンネル構造 ---
 		RectF{ 1280, 360, 150, 40 },
-
-		// --- エリア3: 連なる空中アスレチック ---
 		RectF{ 1850, 320, 120, 40 },
 		RectF{ 2100, 240, 120, 40 },
-
-		// --- エリア4: ゴール前の壁 ---
 		RectF{ 2550, 400, 80, 140 },
 	};
 
-	// 隠し（透明）ブロック一覧
+	// 隠しブロック
 	Array<HiddenBlock> hiddenBlocks;
+
+	//  コインの座標リスト
+	Array<Vec2> coins;
 
 	void reset()
 	{
 		hiddenBlocks.clear();
-		// 1500pxの落とし穴の少し手前(1450px)・頭上(Y=360)に透明ブロックを配置
+		coins.clear();
+
+		// 隠しブロック
 		hiddenBlocks.push_back(HiddenBlock{ RectF{ 1450, 360, 50, 40 }, false });
+
+		//  コイン配置（好きな場所に置ける）
+		coins << Vec2{ 520, 320 };
+		coins << Vec2{ 780, 240 };
+		coins << Vec2{ 1060, 160 };
+
+		//  ブロックの上に自動でコインを置く例
+		for (const auto& block : blocks)
+		{
+			coins << Vec2{ block.x + block.w / 2, block.y - 40 };
+		}
 	}
 
-	// プレイヤーが穴の上にいるか判定（マージンを設けて判定をより確実に）
 	bool isOverPit(double posX) const
 	{
 		for (const auto& pit : pits)
 		{
-			// 穴の左端から右端の範囲内か判定
 			if (posX >= pit.first && posX <= pit.second)
 			{
 				return true;
