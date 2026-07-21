@@ -199,9 +199,9 @@ void Main()
 
 		// ★ 落とし穴の範囲判定
 		// プレイヤーの判定サイズ(playerSize * 0.6)の半分を考慮して、体の一部が穴にかかっているか確認
-		const double playerHalfWidth = (playerSize * 0.6) / 2.0;
+		
 		const bool isInPit = stage.isOverPit(playerPos.x);
-		const bool isNearPitEdge = stage.isOverPit(playerPos.x - playerHalfWidth) || stage.isOverPit(playerPos.x + playerHalfWidth);
+		const bool isNearPitEdge = stage.isOverPit(playerPos.x) || stage.isOverPit(playerPos.x);
 
 		// 穴の上、または穴のフチに引っかかっている間は「地面への着地」を完全に禁止する
 		if (!isInPit && !isNearPitEdge)

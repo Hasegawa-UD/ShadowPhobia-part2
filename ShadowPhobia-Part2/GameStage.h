@@ -48,6 +48,8 @@ public:
 		hiddenBlocks.clear();
 		// 1500pxの落とし穴の少し手前(1450px)・頭上(Y=360)に透明ブロックを配置
 		hiddenBlocks.push_back(HiddenBlock{ RectF{ 1450, 360, 50, 40 }, false });
+		hiddenBlocks.push_back(HiddenBlock{ RectF{ 1400, 200, 70, 40 }, false });
+		hiddenBlocks.push_back(HiddenBlock{ RectF{ 1450, 50, 70, 40}, false });
 	}
 
 	// プレイヤーが穴の上にいるか判定（マージンを設けて判定をより確実に）
